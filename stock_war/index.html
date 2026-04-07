@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>STOCK WAR - TERMINAL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #020617; color: #f8fafc; -webkit-tap-highlight-color: transparent; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .glass { background: rgba(30, 41, 59, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        input[type="number"]::-webkit-inner-spin-button { display: none; }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+
+    <div id="setup-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center p-8 bg-[#020617]">
+        <div class="w-full max-w-xs text-center">
+            <h1 class="text-5xl font-black mb-1 italic text-emerald-400 tracking-tighter">STOCK WAR</h1>
+            <div class="space-y-4 mt-12">
+                <input type="text" id="user-name" placeholder="팀명 입력" class="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 text-center font-bold outline-none focus:border-emerald-500 text-white">
+                <button onclick="startGame()" class="w-full bg-emerald-500 text-[#020617] p-4 rounded-2xl font-black text-lg active:scale-95">시스템 접속</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="main-screen" class="hidden min-h-screen flex flex-col">
+        <header class="sticky top-0 z-40 p-4 glass rounded-b-[2rem] shadow-2xl">
+            <div class="flex justify-between items-start mb-4">
+                <div class="space-y-1">
+                    <p id="display-name" class="text-slate-500 text-[10px] font-black uppercase tracking-widest">Node: -</p>
+                    <h2 class="text-2xl font-extrabold mono text-emerald-400 italic">₩ <span id="display-assets">0</span></h2>
+                </div>
+                <div class="text-right">
+                    <div id="display-round" class="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black mono border border-emerald-500/20 italic">ROUND 1</div>
+                    <p class="mt-2 text-[10px] font-bold text-slate-400 uppercase">Coin <span id="display-coins" class="text-amber-400 text-lg ml-1 mono">0</span></p>
+                </div>
+            </div>
+            <button onclick="openScanner()" class="w-full bg-white/5 border border-white/10 text-slate-200 py-3 rounded-2xl font-bold text-xs">기밀 데이터 스캔 (QR)</button>
+        </header>
+
+        <main class="p-4 space-y-4 flex-1">
+            <section id="info-section" class="hidden p-5 glass rounded-[2.5rem] border-amber-500/30 border shadow-xl">
+                <div class="text-amber-400 font-black text-[10px] uppercase mb-3 animate-pulse">● 실시간 기밀 브리핑</div>
+                <div id="info-content" class="text-[12px] font-bold leading-relaxed text-slate-300 space-y-2"></div>
+            </section>
+
+            <section class="p-6 glass rounded-[2.5rem]">
+                <div class="flex justify-between items-center mb-6"><h3 class="font-black text-slate-400 text-[10px] tracking-widest uppercase italic">Portfolio Config</h3><span class="text-[9px] text-slate-600 font-bold">(단위: 만 원)</span></div>
+                <div id="company-list" class="space-y-3"></div>
+                <button id="lock-btn" onclick="lockInvestment()" class="w-full mt-8 bg-white text-[#020617] py-4 rounded-2xl font-black text-xs tracking-widest active:scale-95">투자 포지션 확정</button>
+            </section>
+
+            <section id="settlement-section" class="hidden p-6 glass rounded-[2.5rem] border-emerald-500/30 border">
+                <h3 id="settle-title" class="font-black text-emerald-400 text-[10px] tracking-widest uppercase mb-4 italic text-center">수익 정산 시스템</h3>
+                <div id="settle-inputs" class="flex flex-col gap-3">
+                    <input type="number" id="round-key" placeholder="보안코드 4자리" class="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-center mono text-xl font-black outline-none focus:border-emerald-500 text-white">
+                    <button id="settle-btn" onclick="processSettlement()" class="w-full bg-emerald-500 text-[#020617] py-4 rounded-2xl font-black text-sm active:scale-95">정산하기</button>
+                </div>
+                <div id="waiting-msg" class="hidden text-center py-4">
+                    <p class="text-amber-400 font-black text-xs animate-pulse">정산 완료! 다음 라운드 대기 중...</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="purchase-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl">
+        <div class="glass w-full max-w-xs rounded-[2.5rem] p-8 border-white/10 shadow-2xl">
+            <div class="text-center mb-8"><h2 id="modal-company-name" class="text-3xl font-black text-emerald-400 italic tracking-tighter uppercase">-</h2><p class="text-slate-500 text-[10px] font-bold mt-2 uppercase tracking-widest italic">Intelligence Access</p></div>
+            <div class="space-y-3">
+                <button onclick="buyInfo(1)" class="w-full p-4 bg-white/5 rounded-2xl border border-white/5 flex justify-between items-center"><span class="font-bold text-xs">1단계: 하급</span><span class="mono text-amber-400 text-xs font-black">🪙 1</span></button>
+                <button onclick="buyInfo(2)" class="w-full p-4 bg-white/5 rounded-2xl border border-white/5 flex justify-between items-center"><span class="font-bold text-xs">2단계: 중급</span><span class="mono text-amber-400 text-xs font-black">🪙 2</span></button>
+                <button onclick="buyInfo(3)" class="w-full p-4 bg-white/5 rounded-2xl border border-white/5 flex justify-between items-center"><span class="font-bold text-xs">3단계: 고급</span><span class="mono text-amber-400 text-xs font-black">🪙 3</span></button>
+                <button onclick="closeModal()" class="w-full py-2 text-slate-600 font-bold text-[10px] uppercase mt-4 tracking-widest">접속 중단</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="qr-modal" class="hidden fixed inset-0 bg-black z-50 flex flex-col">
+        <div class="p-6 flex justify-between items-center text-white"><h2 class="text-sm font-black italic tracking-widest">데이터 노드 스캔 중...</h2><button onclick="closeScanner()" class="text-3xl">&times;</button></div>
+        <div id="reader" class="flex-1 overflow-hidden"></div>
+    </div>
+
+    <script>
+        // 기업 정보 데이터 복구
+        const companyInfo = {
+            BAUL: { name: "바글", r1:{t1:"본사 인근 차량 행렬 포착",t2:"접속자 폭주로 인한 서버 과부하 발생",t3:"플랫폼 런칭 성공, +30%"}, r2:{t1:"로펌 접촉",t2:"독점 금지법 리스크",t3:"사법 리스크 현실화, -30%"}, r3:{t1:"관망세 유지",t2:"정부 규제안 발표 전 정체",t3:"보합 및 하락세 우세"}, r4:{t1:"비밀 문서 유출",t2:"소송 기각 결정",t3:"독점 사업권 승인 유력, +60%"}, r5:{t1:"전력 수급 비상",t2:"냉각 시스템 마비",t3:"전 서버 셧다운, -40%"}, r6:{t1:"계약 중단",t2:"수익 모델 부재",t3:"이용자 이탈 가속, -30%"}, r7:{t1:"보안 표준 채택",t2:"국가 표준 채택 프리미엄",t3:"국가 파트너 선정 유력, +50%"}, r8:{t1:"전산망 마비",t2:"물리적 파손으로 복구 불가",t3:"자산 가치 상실 위기, -80%"}, r9:{t1:"네트워크 정상화",t2:"서비스 안정화 단계 진입",t3:"완만한 반등 전망"} },
+            SOLOMAN: { name: "솔로만삭스", r1:{t1:"고위 관계자 방문",t2:"해외 자본 국내 유입 포착",t3:"유동성 공급 확대로 +10%"}, r2:{t1:"대출 창구 급증",t2:"예대마진 사상 최대",t3:"금리 인상 수혜 본격화, +40%"}, r3:{t1:"연체율 경고",t2:"부실 채권 매각 실패",t3:"뱅크런 조짐 및 유동성 위기, -20%"}, r4:{t1:"구제 금융 지원설",t2:"공적 자금 투입 임박",t3:"자산 건전성 회복 유력, +40%"}, r5:{t1:"금괴 매집 정황",t2:"인플레이션 공포 수혜",t3:"안전자산 프리미엄, +10%"}, r6:{t1:"인출 중지",t2:"지급 불능 사태(Default)",t3:"시스템 붕괴 및 파산 유력, -80%"}, r7:{t1:"화폐 개혁 루머",t2:"신규 화폐 독점 발행권",t3:"금융 시스템 통제권 장악, +80%"}, r8:{t1:"서버 파괴 보고서",t2:"자산 기록 전체 소멸",t3:"전산 물리적 파괴로 인한 -80%"}, r9:{t1:"영업 재개 선언",t2:"소액 대출 상품 출시",t3:"완만한 반등 전망"} },
+            DAWITH: { name: "다윗화", r1:{t1:"공장 가동 중단",t2:"긴급 휴전 협상 진행",t3:"방산 수요 감소로 -10%"}, r2:{t1:"방공호 예약 폭주",t2:"국지전 발생으로 주문 폭주",t3:"전쟁 특수 발생으로 +50%"}, r3:{t1:"기밀 유출 조사",t2:"핵심 설계도 해외 유출",t3:"기술 경쟁력 상실 우려, -30%"}, r4:{t1:"박람회 참가 호평",t2:"해외 대규모 수주 임박",t3:"수주 기대감으로 완만한 반등"}, r5:{t1:"24시간 가동 포착",t2:"전면전 양상 확대로 물자 생산",t3:"풀가동 생산 체제 돌입, +30%"}, r6:{t1:"무장 병력 호송",t2:"전시 자산 가치 보존용 금 확대",t3:"안전 자산화 성공으로 +10%"}, r7:{t1:"라인 해체 작업",t2:"종전 선언 및 군비 축소",t3:"성장 동력 상실로 -20%"}, r8:{t1:"가정용 방범 매진",t2:"치안 마비로 민간 방어 급증",t3:"틈새 시장 매출 증대로 +15%"}, r9:{t1:"라인 공정 변경",t2:"전후 재건 중장비 수요 대기",t3:"과도기로 인한 보합세 전망"} },
+            AMAJOSEPH: { name: "아마셉", r1:{t1:"로봇 가동률 상향",t2:"운송비 상승으로 이익 상쇄",t3:"보합 또는 소폭 하락"}, r2:{t1:"물류 센터 적체",t2:"소비 심리 위축으로 유통 감소",t3:"경기 침체 영향, -10%"}, r3:{t1:"자율 주행 테스트",t2:"혁신 시스템 도입으로 효율 극대",t3:"유통 기술 혁명 성공, +40%"}, r4:{t1:"데이터 오류 감지",t2:"시스템 조정 정체",t3:"기술 결함 우려 발생, -15%"}, r5:{t1:"유류 비축량 바닥",t2:"유가 폭등으로 네트워크 마비",t3:"물류 셧다운 사태, -30%"}, r6:{t1:"무장 병력 배치",t2:"생필품 독점 공급망 권력 장악",t3:"유통 독점 지위 확보, +30%"}, r7:{t1:"통합 결제 런칭",t2:"유통망 정상화 및 구조 개선",t3:"인프라 정상화 성공, +20%"}, r8:{t1:"로봇 무더기 파손",t2:"도로 봉쇄로 배달 불능",t3:"기업 생존 위기 직면, -70%"}, r9:{t1:"거점 오픈 준비",t2:"전후 재건 물류 중심 등극",t3:"수요 증가로 +15% 상승"} },
+            CHANEL: { name: "더샤넬", r1:{t1:"대기 행렬 3배",t2:"브랜드 선호도 급격한 증가",t3:"판매고 달성, +15%"}, r2:{t1:"텐트 등장",t2:"가격 인상 예고 선구매 수요",t3:"명품 수요 폭발, +20%"}, r3:{t1:"라운지 확장 공사",t2:"폐쇄적 마케팅 성공",t3:"타겟 마케팅 성과 반영, +15%"}, r4:{t1:"가짜 제품 유출",t2:"브랜드 가치 훼손 및 이탈",t3:"브랜드 가치 추락, -40%"}, r5:{t1:"야간 조명 소등",t2:"소비 심리 위축 매출 하락",t3:"수요 위축 가시화, -10%"}, r6:{t1:"물물교환 포착",t2:"화폐 가치 하락 속 최후 자산",t3:"실물 가치 저장 수단 등극, +50%"}, r7:{t1:"세무 조사 착수",t2:"사치세 부과 및 수익 환수",t3:"정부 규제 및 세금 폭탄, -40%"}, r8:{t1:"매장 유리 파손",t2:"생존 위기로 사치재 시장 마비",t3:"시장 기능 완전 상실, -60%"}, r9:{t1:"립스틱 효과 본격화",t2:"기초 화장품 라인 매출 급증",t3:"기초 소비 수요 회복 반등"} },
+            LUKEBIO: { name: "누가바이오", r1:{t1:"문서 파쇄기 소음",t2:"데이터 조작 의혹 고발 조짐",t3:"기업 신뢰도 하락으로 -20%"}, r2:{t1:"제약사 정기 방문",t2:"기술 협력 및 M&A 논의",t3:"제휴 기대감 발생, +10%"}, r3:{t1:"내부 기밀 유출",t2:"3상 임상 압도적 성공",t3:"독점 기술 수출 계약, +80%"}, r4:{t1:"임원 주식 매도",t2:"고점 도달 인식 매물 출회",t3:"차익 실현 매도 물량, -20%"}, r5:{t1:"온도 변화 경고",t2:"관리 부실로 핵심 원료 폐기",t3:"운영 손실 발생으로 -20%"}, r6:{t1:"시스템 차단",t2:"순환 마비로 원부자재 수급 불가",t3:"생산 라인 셧다운 발생, -50%"}, r7:{t1:"잡초 무성 가동 정지",t2:"보조금 차단 및 연구 중단",t3:"시장 관심 이탈로 하락 지속"}, r8:{t1:"방독면 대량 반출",t2:"비상 대응 구호 물자 생산",t3:"특수 수요 긴급 발생으로 +10%"}, r9:{t1:"보건부 관계자 방문",t2:"국가 의료 인프라 편입 임박",t3:"공공 인프라 파트너 유력, +10%"} },
+            SAMSON: { name: "삼슨라", r1:{t1:"시제품 포착",t2:"차세대 저장 장치 개발 성공",t3:"에너지 기술 혁신 성공, +25%"}, r2:{t1:"가동 중단 소리",t2:"글로벌 공급망 폐쇄 가동 불능",t3:"생산 라인 마비 사태로 -25%"}, r3:{t1:"수소 탱크 중단",t2:"에너지 개발 차질 투자금 회수",t3:"성장 모멘텀 상실로 -15%"}, r4:{t1:"빅테크 접견",t2:"자율 주행 핵심 소프트 독점",t3:"플랫폼 확장 성공으로 +10%"}, r5:{t1:"광산 지분 확보",t2:"배터리 핵심 리튬 독점",t3:"글로벌 에너지 패권 장악, +70%"}, r6:{t1:"슈퍼카 집결 포착",t2:"에너지 판매고 성과급 파티",t3:"시장 완전 독점 체제, +90%"}, r7:{t1:"가격 상한제 검토",t2:"정부 규제 투기 세력 이탈",t3:"규제 영향에 따른 보합세"}, r8:{t1:"전국 전력망 붕괴",t2:"물리적 파괴 공급망 상실",t3:"에너지 가치 소멸로 -50%"}, r9:{t1:"독립 태양광 런칭",t2:"각 가정별 분산 에너지망 구축",t3:"신시장 개척 성공에 따른 +10%"} }
+        };
+
+        const scenario = {
+            round1: { key: "1004", rates: { BAUL: 1.35, SOLOMAN: 1.10, DAWITH: 0.85, AMAJOSEPH: 1.00, CHANEL: 1.15, LUKEBIO: 0.80, SAMSON: 1.25 } },
+            round2: { key: "5520", rates: { BAUL: 0.65, SOLOMAN: 1.45, DAWITH: 1.55, AMAJOSEPH: 0.90, CHANEL: 1.20, LUKEBIO: 1.10, SAMSON: 0.75 } },
+            round3: { key: "7788", rates: { BAUL: 0.95, SOLOMAN: 0.75, DAWITH: 0.70, AMAJOSEPH: 1.40, CHANEL: 1.15, LUKEBIO: 1.85, SAMSON: 0.85 } },
+            round4: { key: "0404", rates: { BAUL: 1.65, SOLOMAN: 1.45, DAWITH: 1.05, AMAJOSEPH: 0.85, CHANEL: 0.55, LUKEBIO: 0.75, SAMSON: 1.10 } },
+            round5: { key: "8282", rates: { BAUL: 0.55, SOLOMAN: 1.15, DAWITH: 1.35, AMAJOSEPH: 0.65, CHANEL: 0.90, LUKEBIO: 0.80, SAMSON: 1.70 } },
+            round6: { key: "1234", rates: { BAUL: 0.65, SOLOMAN: 0.15, DAWITH: 1.10, AMAJOSEPH: 1.30, CHANEL: 1.60, LUKEBIO: 0.45, SAMSON: 1.95 } },
+            round7: { key: "9900", rates: { BAUL: 1.55, SOLOMAN: 1.85, DAWITH: 0.75, AMAJOSEPH: 1.20, CHANEL: 0.60, LUKEBIO: 0.90, SAMSON: 1.05 } },
+            round8: { key: "4444", rates: { BAUL: 0.15, SOLOMAN: 0.20, DAWITH: 1.15, AMAJOSEPH: 0.25, CHANEL: 0.40, LUKEBIO: 1.10, SAMSON: 0.50 } },
+            round9: { key: "2026", rates: { BAUL: 1.05, SOLOMAN: 1.05, DAWITH: 1.00, AMAJOSEPH: 1.15, CHANEL: 1.05, LUKEBIO: 1.10, SAMSON: 1.10 } }
+        };
+
+        const companyIds = ["BAUL", "SOLOMAN", "DAWITH", "AMAJOSEPH", "CHANEL", "LUKEBIO", "SAMSON"];
+        const initialState = { 
+            name: "", round: 1, assets: 10000000, coins: 0, 
+            investments: { BAUL:0, SOLOMAN:0, DAWITH:0, AMAJOSEPH:0, CHANEL:0, LUKEBIO:0, SAMSON:0 }, 
+            isLocked: false, isWaiting: false, nextAssets: 0, isJoined: false, purchased: {} 
+        };
+        
+        let state = JSON.parse(localStorage.getItem('sw_v12_final')) || {...initialState};
+        let globalRound = 1;
+        let scanId = "";
+
+        function sync() {
+            localStorage.setItem('sw_v12_final', JSON.stringify(state));
+            updateUI();
+            if (db && state.name) db.ref('rankings/' + state.name).update({ 
+                assets: state.assets, round: state.round, coins: state.coins, 
+                isLocked: state.isLocked, isWaiting: state.isWaiting, ts: Date.now() 
+            });
+        }
+
+        function startGame() {
+            if(!state.name) state.name = document.getElementById('user-name').value;
+            if(!state.name) return alert("팀명 입력!");
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('main-screen').classList.remove('hidden');
+            
+            if(db) {
+                db.ref('game_settings/currentRound').on('value', snap => { 
+                    const newGlobal = snap.val() || 1;
+                    if (newGlobal < globalRound && state.isJoined) { state = {...initialState, name: state.name}; sync(); }
+                    if (newGlobal > globalRound && state.isWaiting) {
+                        state.assets = state.nextAssets; state.round = newGlobal; state.isWaiting = false; state.isLocked = false;
+                        state.investments = { BAUL:0, SOLOMAN:0, DAWITH:0, AMAJOSEPH:0, CHANEL:0, LUKEBIO:0, SAMSON:0 };
+                        // 라운드 변경 시 구매 정보 초기화
+                        state.purchased = {}; 
+                        sync(); alert("새 라운드가 시작되었습니다!");
+                    }
+                    globalRound = newGlobal; renderCompanies(); updateUI(); 
+                });
+
+                db.ref('rankings/' + state.name).on('value', snap => {
+                    if(!snap.exists() && state.isJoined) { 
+                        alert("리셋 또는 추방되었습니다."); localStorage.removeItem('sw_v12_final'); location.reload(); return; 
+                    }
+                    const d = snap.val();
+                    if(d) {
+                        state.isLocked = d.isLocked || false; state.isWaiting = d.isWaiting || false;
+                        state.assets = d.assets || state.assets; state.coins = d.coins || 0;
+                        state.isJoined = true; renderCompanies(); updateUI();
+                    } else if (!state.isJoined) { state.isJoined = true; sync(); }
+                });
+            }
+        }
+
+        function renderCompanies() {
+            const list = document.getElementById('company-list');
+            const inputDisabled = state.isLocked || state.isWaiting;
+            list.innerHTML = companyIds.map(id => `
+                <div class="flex items-center gap-3 ${inputDisabled ? 'opacity-60' : ''}">
+                    <span class="w-16 font-black text-slate-500 text-[11px] uppercase">${companyInfo[id].name}</span>
+                    <div class="flex-1 flex items-center bg-white/5 rounded-xl px-4 border ${inputDisabled ? 'border-white/5' : 'border-emerald-500/50'}">
+                        <input type="number" oninput="updateInv('${id}', this.value)" ${inputDisabled ? 'disabled' : ''} value="${(state.investments[id]||0)/10000}" class="w-full bg-transparent text-right font-black mono text-slate-100 py-3 outline-none text-sm">
+                        <span class="text-slate-400 font-bold text-[10px] ml-2">만</span>
+                    </div>
+                </div>`).join('');
+            
+            const btn = document.getElementById('lock-btn');
+            if(inputDisabled) {
+                btn.innerText = state.isWaiting ? "정산 완료 (대기 중)" : "포지션 확정 상태";
+                btn.className = "w-full mt-6 bg-slate-800 text-slate-500 py-4 rounded-2xl font-black text-[10px]";
+                btn.disabled = true;
+                if(!state.isWaiting) document.getElementById('settlement-section').classList.remove('hidden');
+                else document.getElementById('settlement-section').classList.add('hidden');
+            } else {
+                btn.innerText = "투자 포지션 확정"; btn.className = "w-full mt-6 bg-white text-[#020617] py-4 rounded-2xl font-black text-[10px] shadow-xl";
+                btn.disabled = false; document.getElementById('settlement-section').classList.add('hidden');
+            }
+            document.getElementById('settle-inputs').classList.toggle('hidden', state.isWaiting);
+            document.getElementById('waiting-msg').classList.toggle('hidden', !state.isWaiting);
+
+            // 기밀 정보 브리핑 섹션 갱신
+            const infoBox = document.getElementById('info-section');
+            if(Object.keys(state.purchased).length > 0) {
+                infoBox.classList.remove('hidden');
+                document.getElementById('info-content').innerHTML = Object.entries(state.purchased).map(([id, tier]) => 
+                    `<div><span class="bg-amber-400 text-black px-2 py-0.5 rounded text-[8px] mr-2 font-black">T${tier} ${companyInfo[id].name}</span> ${companyInfo[id]['r'+globalRound]['t'+tier]}</div>`
+                ).join('');
+            } else { infoBox.classList.add('hidden'); }
+        }
+
+        // QR 및 구매 관련 함수
+        function openScanner() { document.getElementById('qr-modal').classList.remove('hidden'); sc = new Html5Qrcode("reader"); sc.start({ facingMode: "environment" }, { fps: 15, qrbox: 220 }, (txt) => { closeScanner(); handleScan(txt); }).catch(() => closeScanner()); }
+        function closeScanner() { if(sc) sc.stop().then(()=>document.getElementById('qr-modal').classList.add('hidden')); }
+        function handleScan(text) { 
+            const id = text.trim().toUpperCase(); 
+            if (!companyInfo[id]) return alert("유효하지 않은 데이터 노드입니다."); 
+            if (state.purchased[id]) return alert("이미 이 기업의 정보를 확보했습니다.");
+            scanId = id; 
+            document.getElementById('modal-company-name').innerText = companyInfo[id].name; 
+            document.getElementById('purchase-modal').classList.remove('hidden'); 
+        }
+        function buyInfo(tier) { 
+            if(state.coins < tier) return alert("코인이 부족합니다!"); 
+            state.coins -= tier; 
+            state.purchased[scanId] = tier; 
+            closeModal(); sync(); renderCompanies(); 
+        }
+        function closeModal() { document.getElementById('purchase-modal').classList.add('hidden'); }
+
+        function updateInv(id, val) { state.investments[id] = (parseInt(val)||0) * 10000; localStorage.setItem('sw_v12_final', JSON.stringify(state)); }
+        function lockInvestment() { 
+            let total = Object.values(state.investments).reduce((a,b)=>a+b, 0);
+            if(total > state.assets) return alert("자산 부족!");
+            if(total <= 0) return alert("투자금을 입력하세요!");
+            state.isLocked = true; sync(); 
+        }
+        function processSettlement() {
+            const key = document.getElementById('round-key').value;
+            const rData = scenario['round' + globalRound];
+            if(!rData || key !== rData.key) return alert("코드 불일치!");
+            let inv = 0; let prof = 0;
+            Object.entries(state.investments).forEach(([id, val]) => { inv += val; prof += val * (rData.rates[id] || 1); });
+            state.nextAssets = Math.floor((state.assets - inv) + prof);
+            state.isWaiting = true; sync();
+        }
+
+        function updateUI() {
+            document.getElementById('display-assets').innerText = state.assets.toLocaleString();
+            document.getElementById('display-round').innerText = "ROUND " + globalRound;
+            document.getElementById('display-name').innerText = `Node: ${state.name}`;
+            document.getElementById('display-coins').innerText = state.coins;
+        }
+
+        let sc = null;
+        let db = null; try { const cfg = { apiKey: "AIzaSyBJ-Z1E9oCtf-4lXZ4kXNB7g2wDpzQRp20", databaseURL: "https://stock-war-default-rtdb.asia-southeast1.firebasedatabase.app", projectId: "stock-war" }; firebase.initializeApp(cfg); db = firebase.database(); } catch(e){}
+        if(state.name) startGame();
+    </script>
+</body>
+</html>
