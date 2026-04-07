@@ -4,6 +4,9 @@
 ![Tech Stack](https://img.shields.io/badge/Stack-HTML5%20%7C%20TailwindCSS%20%7C%20Firebase-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![Live Demo](https://img.shields.io/badge/Demo-Live%20Now-brightgreen)
+[Live Demo - 유저용](https://[kdg311378-star].github.io/STOCK_WAR/index.html)
+
+[Admin Panel - 관리자용](https://[kdg311378-star].github.io/STOCK_WAR/admin.html)
 
 ## 1. 프로젝트 개요
 * **프로젝트 명칭:** STOCK WAR (스톡 워)
